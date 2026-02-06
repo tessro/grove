@@ -140,6 +140,7 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
   const [dims, setDims] = useState({ w: 800, h: 600 });
   const [tooltip, setTooltip] = useState(null);
   const [seenIds, setSeenIds] = useState(new Set());
+  const seenIdsRef = useRef(seenIds);
   const tooltipTimeout = useRef(null);
 
   const markSeen = useCallback((id) => {
@@ -147,6 +148,7 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
       if (prev.has(id)) return prev;
       const next = new Set(prev);
       next.add(id);
+      seenIdsRef.current = next;
       return next;
     });
   }, []);
@@ -280,7 +282,7 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
         const target = nodes.find(
           (n) => n.id === (d.target.id || d.target),
         );
-        const nodeIsSeen = target && (target.seen || seenIds.has(target.id));
+        const nodeIsSeen = target && (target.seen || seenIdsRef.current.has(target.id));
         d3.select(this)
           .attr("stroke", nodeIsSeen ? "rgb(50,50,47)" : UNSEEN.linkColor)
           .attr("stroke-width", nodeIsSeen ? 1 : 1.8);
@@ -315,7 +317,7 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
     /* Render each node */
     nodeG.each(function (d) {
       const el = d3.select(this);
-      const nodeIsSeen = d.seen || seenIds.has(d.id);
+      const nodeIsSeen = d.seen || seenIdsRef.current.has(d.id);
       const v = getNodeVisual(d, nodeIsSeen);
 
       /* Glow */
@@ -387,7 +389,7 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
       // Report hover to parent
       onHoverNode?.(d.id);
 
-      if (!(d.seen || seenIds.has(d.id))) {
+      if (!(d.seen || seenIdsRef.current.has(d.id))) {
         markSeen(d.id);
         onMarkSeen?.(d.id);
         const el = d3.select(event.currentTarget);
@@ -439,7 +441,7 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
           );
       }
 
-      const nodeIsSeen = d.seen || seenIds.has(d.id);
+      const nodeIsSeen = d.seen || seenIdsRef.current.has(d.id);
       const v = nodeIsSeen
         ? HEAT_CONFIG[d.heat] || HEAT_CONFIG.quiet
         : getNodeVisual(d, false);
@@ -503,7 +505,7 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
     }, 1800);
 
     return () => sim.stop();
-  }, [dims, tree, seenIds, markSeen, onHoverNode, onMarkSeen]);
+  }, [dims, tree, onHoverNode, onMarkSeen]);
 
   if (!tree) return null;
 
