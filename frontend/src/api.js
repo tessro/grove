@@ -1,0 +1,40 @@
+const BASE = "/api";
+
+export async function createDoc() {
+  const res = await fetch(`${BASE}/docs`, { method: "POST" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function getDoc(id) {
+  const res = await fetch(`${BASE}/docs/${id}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function getMessages(id) {
+  const res = await fetch(`${BASE}/docs/${id}/messages`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function chat(id, message, hoverNodeId) {
+  const res = await fetch(`${BASE}/docs/${id}/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message,
+      hover_node_id: hoverNodeId || null,
+    }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function heartbeat(id) {
+  const res = await fetch(`${BASE}/docs/${id}/heartbeat`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
