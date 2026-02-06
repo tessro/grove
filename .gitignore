@@ -9,6 +9,9 @@ target
 frontend/node_modules
 frontend/dist
 
+# Environment
+.env
+
 # Database
 *.db
 *.db-journal

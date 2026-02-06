@@ -20,6 +20,8 @@ use llm::LlmClient;
 async fn main() {
     tracing_subscriber::fmt::init();
 
+    dotenvy::dotenv().ok();
+
     let api_key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY must be set");
     let model = std::env::var("GROVE_MODEL").ok();
     let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
