@@ -9,7 +9,7 @@ build-server:
 	cargo build --release
 
 build-frontend:
-	cd $(FRONTEND_DIR) && npm install && npm run build
+	cd $(FRONTEND_DIR) && mise exec -- npm install && mise exec -- npm run build
 
 install: build
 	-systemctl --user stop grove.service
