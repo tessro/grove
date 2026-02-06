@@ -141,6 +141,28 @@ pub async fn heartbeat(
     }))
 }
 
+pub async fn mark_seen(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<MarkSeenRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let doc = state
+        .db
+        .get_document(&id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "Document not found".to_string()))?;
+
+    let mut tree = doc.tree;
+    if tree.mark_seen(&req.node_id) {
+        state
+            .db
+            .update_tree(&id, &tree)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 pub async fn get_messages(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,

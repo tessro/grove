@@ -31,6 +31,14 @@ export async function chat(id, message, hoverNodeId) {
   return res.json();
 }
 
+export async function markSeen(id, nodeId) {
+  await fetch(`${BASE}/docs/${id}/mark-seen`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ node_id: nodeId }),
+  });
+}
+
 export async function heartbeat(id) {
   const res = await fetch(`${BASE}/docs/${id}/heartbeat`, {
     method: "POST",

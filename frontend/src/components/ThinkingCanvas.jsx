@@ -133,7 +133,7 @@ function countUnseen(node, seenIds) {
   return c;
 }
 
-export default function ThinkingCanvas({ tree, onHoverNode, hoverNodeId }) {
+export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNodeId }) {
   const svgRef = useRef(null);
   const containerRef = useRef(null);
   const simRef = useRef(null);
@@ -389,6 +389,7 @@ export default function ThinkingCanvas({ tree, onHoverNode, hoverNodeId }) {
 
       if (!(d.seen || seenIds.has(d.id))) {
         markSeen(d.id);
+        onMarkSeen?.(d.id);
         const el = d3.select(event.currentTarget);
         const normalV = { ...(HEAT_CONFIG[d.heat] || HEAT_CONFIG.quiet) };
 
@@ -502,7 +503,7 @@ export default function ThinkingCanvas({ tree, onHoverNode, hoverNodeId }) {
     }, 1800);
 
     return () => sim.stop();
-  }, [dims, tree, seenIds, markSeen, onHoverNode]);
+  }, [dims, tree, seenIds, markSeen, onHoverNode, onMarkSeen]);
 
   if (!tree) return null;
 

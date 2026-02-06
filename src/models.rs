@@ -12,6 +12,22 @@ pub struct TreeNode {
     pub children: Vec<TreeNode>,
 }
 
+impl TreeNode {
+    /// Recursively find a node by ID and set `seen = true`. Returns whether it was found.
+    pub fn mark_seen(&mut self, node_id: &str) -> bool {
+        if self.id == node_id {
+            self.seen = true;
+            return true;
+        }
+        for child in &mut self.children {
+            if child.mark_seen(node_id) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Document {
     pub id: String,
@@ -59,4 +75,9 @@ pub struct CreateDocResponse {
 #[derive(Debug, Serialize)]
 pub struct MessagesResponse {
     pub messages: Vec<Message>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MarkSeenRequest {
+    pub node_id: String,
 }

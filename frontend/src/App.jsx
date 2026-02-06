@@ -74,6 +74,16 @@ export default function App() {
     [docId, hoverNodeId],
   );
 
+  /* Mark node as seen in backend */
+  const handleMarkSeen = useCallback(
+    (nodeId) => {
+      api.markSeen(docId, nodeId).catch((e) => {
+        console.error("Mark seen error:", e);
+      });
+    },
+    [docId],
+  );
+
   /* Heartbeat handler */
   const handleHeartbeat = useCallback(async () => {
     setHeartbeatLoading(true);
@@ -130,6 +140,7 @@ export default function App() {
         <ThinkingCanvas
           tree={tree}
           onHoverNode={setHoverNodeId}
+          onMarkSeen={handleMarkSeen}
           hoverNodeId={hoverNodeId}
         />
       </div>
