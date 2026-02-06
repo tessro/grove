@@ -140,7 +140,7 @@ impl LlmClient {
         Self {
             client: Client::new(),
             api_key,
-            model: model.unwrap_or_else(|| "claude-sonnet-4-20250514".to_string()),
+            model: model.unwrap_or_else(|| "claude-opus-4-6".to_string()),
         }
     }
 
@@ -184,7 +184,8 @@ impl LlmClient {
 
         let body = json!({
             "model": self.model,
-            "max_tokens": 4096,
+            "max_tokens": 16000,
+            "thinking": { "type": "adaptive" },
             "system": system,
             "messages": api_messages,
             "tools": tools(),
@@ -230,7 +231,8 @@ impl LlmClient {
 
         let body = json!({
             "model": self.model,
-            "max_tokens": 4096,
+            "max_tokens": 16000,
+            "thinking": { "type": "adaptive" },
             "system": system,
             "messages": api_messages,
             "tools": tools(),
@@ -253,7 +255,7 @@ impl LlmClient {
             .client
             .post("https://api.anthropic.com/v1/messages")
             .header("x-api-key", &self.api_key)
-            .header("anthropic-version", "2023-06-01")
+            .header("anthropic-version", "2025-04-15")
             .header("content-type", "application/json")
             .json(body)
             .send()
