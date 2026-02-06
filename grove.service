@@ -1,0 +1,15 @@
+[Unit]
+Description=Grove - where thoughts grow between minds
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/grove
+ExecStart=%h/.local/bin/grove
+Restart=on-failure
+RestartSec=5
+EnvironmentFile=%h/.config/grove/env
+
+[Install]
+WantedBy=default.target
