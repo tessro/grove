@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import Markdown from "react-markdown";
 
 export default function ChatBox({
   messages,
@@ -69,7 +70,13 @@ export default function ChatBox({
               {msg.role === "human" ? "you" : "claude"}
               {msg.is_heartbeat ? " (heartbeat)" : ""}
             </div>
-            <div className="chat-msg-content">{msg.content}</div>
+            <div className="chat-msg-content">
+              {msg.role === "assistant" ? (
+                <Markdown>{msg.content}</Markdown>
+              ) : (
+                msg.content
+              )}
+            </div>
           </div>
         ))}
         {loading && (

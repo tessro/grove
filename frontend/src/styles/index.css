@@ -292,6 +292,66 @@ body,
   color: rgb(180, 178, 170);
 }
 
+.chat-msg-content p {
+  margin: 0.4em 0;
+}
+
+.chat-msg-content p:first-child {
+  margin-top: 0;
+}
+
+.chat-msg-content p:last-child {
+  margin-bottom: 0;
+}
+
+.chat-msg-content strong {
+  color: rgb(210, 208, 200);
+  font-weight: 600;
+}
+
+.chat-msg-content em {
+  font-style: italic;
+}
+
+.chat-msg-content code {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  background: rgb(35, 35, 32);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.chat-msg-content pre {
+  background: rgb(30, 30, 28);
+  border: 1px solid rgb(45, 45, 42);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 0.5em 0;
+  overflow-x: auto;
+}
+
+.chat-msg-content pre code {
+  background: none;
+  padding: 0;
+}
+
+.chat-msg-content ul,
+.chat-msg-content ol {
+  margin: 0.4em 0;
+  padding-left: 1.4em;
+}
+
+.chat-msg-content li {
+  margin: 0.15em 0;
+}
+
+.chat-msg-content blockquote {
+  border-left: 2px solid rgb(70, 68, 62);
+  padding-left: 10px;
+  margin: 0.4em 0;
+  opacity: 0.8;
+}
+
 .chat-msg.heartbeat .chat-msg-content {
   font-style: italic;
   opacity: 0.7;
