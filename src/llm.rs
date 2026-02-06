@@ -304,7 +304,17 @@ fn process_response(response: &Value, tree: &mut TreeNode) -> anyhow::Result<Str
                             seen: false,
                             children: vec![],
                         };
-                        add_child(tree, parent_id, new_node);
+                        // If tree is still the default empty root, replace it
+                        if parent_id == "root" && tree.id == "root" && tree.children.is_empty() {
+                            tree.id = new_node.id;
+                            tree.label = new_node.label;
+                            tree.prose = new_node.prose;
+                            tree.heat = new_node.heat;
+                            tree.by = new_node.by;
+                            tree.seen = new_node.seen;
+                        } else {
+                            add_child(tree, parent_id, new_node);
+                        }
                     }
                     "update_node" => {
                         let id = input["id"].as_str().unwrap_or("");
