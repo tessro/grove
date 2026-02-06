@@ -258,7 +258,7 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
       )
       .force(
         "charge",
-        d3.forceManyBody().strength((d) => -d.radius * 16),
+        d3.forceManyBody().strength((d) => -d.radius * 20),
       )
       .force("center", d3.forceCenter(w / 2, h / 2))
       .force(
@@ -284,8 +284,8 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
         );
         const nodeIsSeen = target && (target.seen || seenIdsRef.current.has(target.id));
         d3.select(this)
-          .attr("stroke", nodeIsSeen ? "rgb(50,50,47)" : UNSEEN.linkColor)
-          .attr("stroke-width", nodeIsSeen ? 1 : 1.8);
+          .attr("stroke", nodeIsSeen ? "rgb(70,68,62)" : UNSEEN.linkColor)
+          .attr("stroke-width", nodeIsSeen ? 1.4 : 1.8);
       });
 
     /* Node groups */
@@ -426,8 +426,8 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
             d3.select(this)
               .transition()
               .duration(800)
-              .attr("stroke", "rgb(50,50,47)")
-              .attr("stroke-width", 1);
+              .attr("stroke", "rgb(70,68,62)")
+              .attr("stroke-width", 1.4);
           }
         });
       } else {
