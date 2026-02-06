@@ -277,15 +277,15 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
       .data(links)
       .join("line")
       .attr("stroke-dasharray", "6,5")
-      .attr("opacity", 0.5)
+      .attr("opacity", 0.6)
       .each(function (d) {
         const target = nodes.find(
           (n) => n.id === (d.target.id || d.target),
         );
         const nodeIsSeen = target && (target.seen || seenIdsRef.current.has(target.id));
         d3.select(this)
-          .attr("stroke", nodeIsSeen ? "rgb(70,68,62)" : UNSEEN.linkColor)
-          .attr("stroke-width", nodeIsSeen ? 1.4 : 1.8);
+          .attr("stroke", nodeIsSeen ? "rgb(100,98,90)" : UNSEEN.linkColor)
+          .attr("stroke-width", nodeIsSeen ? 1.5 : 1.8);
       });
 
     /* Node groups */
@@ -426,8 +426,8 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
             d3.select(this)
               .transition()
               .duration(800)
-              .attr("stroke", "rgb(70,68,62)")
-              .attr("stroke-width", 1.4);
+              .attr("stroke", "rgb(100,98,90)")
+              .attr("stroke-width", 1.5);
           }
         });
       } else {
