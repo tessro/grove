@@ -1,6 +1,13 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Edge {
+    pub source: String,
+    pub target: String,
+    pub label: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TreeNode {
     pub id: String,
     pub label: String,
@@ -32,6 +39,8 @@ impl TreeNode {
 pub struct Document {
     pub id: String,
     pub tree: TreeNode,
+    #[serde(default)]
+    pub edges: Vec<Edge>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -43,6 +52,7 @@ pub struct Message {
     pub role: String,
     pub content: String,
     pub hover_node_id: Option<String>,
+    pub personality: Option<String>,
     pub created_at: String,
 }
 
@@ -58,13 +68,24 @@ pub struct ChatRequest {
 pub struct ChatResponse {
     pub reply: String,
     pub tree: TreeNode,
+    pub edges: Vec<Edge>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HeartbeatPersonalityResult {
+    pub personality: String,
+    pub thinking: Option<String>,
+    pub contributed: bool,
 }
 
 #[derive(Debug, Serialize)]
 pub struct HeartbeatResponse {
     pub thinking: Option<String>,
     pub tree: TreeNode,
+    pub edges: Vec<Edge>,
     pub changed: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub results: Vec<HeartbeatPersonalityResult>,
 }
 
 #[derive(Debug, Serialize)]
@@ -80,4 +101,30 @@ pub struct MessagesResponse {
 #[derive(Debug, Deserialize)]
 pub struct MarkSeenRequest {
     pub node_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetPersonalitiesRequest {
+    pub personality_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetDiceSidesRequest {
+    pub dice_sides: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PersonalityInfo {
+    pub id: String,
+    pub name: String,
+    pub category: String,
+    pub short_description: String,
+    pub color: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PersonalitiesResponse {
+    pub available: Vec<PersonalityInfo>,
+    pub active: Vec<String>,
+    pub dice_sides: u32,
 }

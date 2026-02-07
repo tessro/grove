@@ -39,7 +39,9 @@ async fn main() {
         .route("/docs/{id}/chat", post(api::chat))
         .route("/docs/{id}/heartbeat", post(api::heartbeat))
         .route("/docs/{id}/messages", get(api::get_messages))
-        .route("/docs/{id}/mark-seen", post(api::mark_seen));
+        .route("/docs/{id}/mark-seen", post(api::mark_seen))
+        .route("/docs/{id}/personalities", get(api::get_personalities).post(api::set_personalities))
+        .route("/docs/{id}/settings", post(api::update_settings));
 
     let app = Router::new()
         .nest("/api", api_routes)
