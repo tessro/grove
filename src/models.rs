@@ -41,6 +41,7 @@ pub struct Document {
     pub tree: TreeNode,
     #[serde(default)]
     pub edges: Vec<Edge>,
+    pub title: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -69,6 +70,8 @@ pub struct ChatResponse {
     pub reply: String,
     pub tree: TreeNode,
     pub edges: Vec<Edge>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -86,6 +89,8 @@ pub struct HeartbeatResponse {
     pub changed: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub results: Vec<HeartbeatPersonalityResult>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

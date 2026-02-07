@@ -3,9 +3,7 @@ import { useState, useCallback } from "react";
 export default function PersonalityPanel({
   personalities,
   activePersonalities,
-  diceSides,
   onTogglePersonality,
-  onDiceSidesChange,
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -82,18 +80,6 @@ export default function PersonalityPanel({
             </div>
           ))}
 
-          <div className="personality-dice">
-            <span>voices per heartbeat: 1d{diceSides}</span>
-            <input
-              type="range"
-              className="heartbeat-slider"
-              min={1}
-              max={6}
-              step={1}
-              value={diceSides}
-              onChange={(e) => onDiceSidesChange(Number(e.target.value))}
-            />
-          </div>
         </div>
       )}
     </div>

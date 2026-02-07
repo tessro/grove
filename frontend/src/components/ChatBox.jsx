@@ -19,6 +19,18 @@ export default function ChatBox({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  /* Focus chat input on printable keystrokes when nothing else is focused */
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      inputRef.current?.focus();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
+
   /* Find hovered node label */
   const hoverLabel = hoverNodeId ? findNodeLabel(tree, hoverNodeId) : null;
 

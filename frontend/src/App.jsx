@@ -27,6 +27,7 @@ export default function App() {
   const [summaryStale, setSummaryStale] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryVoice, setSummaryVoice] = useState("claude");
+  const [title, setTitle] = useState(null);
 
   /* Load document + personalities */
   useEffect(() => {
@@ -43,6 +44,7 @@ export default function App() {
         if (cancelled) return;
         setTree(doc.tree);
         setEdges(doc.edges || []);
+        setTitle(doc.title || null);
         setMessages(msgs.messages);
         setPersonalities(pers.available);
         setActivePersonalities(pers.active);
@@ -61,6 +63,11 @@ export default function App() {
       cancelled = true;
     };
   }, [docId]);
+
+  /* Update browser tab title */
+  useEffect(() => {
+    document.title = title ? `${title} - Grove` : "Grove";
+  }, [title]);
 
   // Build personality color map for child components (memoized to avoid D3 reflow)
   const personalityColors = useMemo(() => {
@@ -84,6 +91,7 @@ export default function App() {
         const res = await api.chat(docId, message, hoverNodeId);
         setTree(res.tree);
         if (res.edges) setEdges(res.edges);
+        if (res.title) setTitle(res.title);
         if (res.reply) {
           setMessages((prev) => [
             ...prev,
@@ -125,6 +133,7 @@ export default function App() {
         setTree(res.tree);
         if (res.edges) setEdges(res.edges);
       }
+      if (res.title) setTitle(res.title);
       // If we got per-personality results, push a message per personality
       if (res.results && res.results.length > 0) {
         for (const r of res.results) {
@@ -305,13 +314,13 @@ export default function App() {
         <PersonalityPanel
           personalities={personalities}
           activePersonalities={activePersonalities}
-          diceSides={diceSides}
           onTogglePersonality={handleTogglePersonalities}
-          onDiceSidesChange={handleDiceSidesChange}
         />
         <SettingsPanel
           repelForce={repelForce}
           onRepelForceChange={handleRepelForceChange}
+          diceSides={diceSides}
+          onDiceSidesChange={handleDiceSidesChange}
         />
         <button className="summary-toggle-btn" onClick={handleToggleDocPane}>
           {docPaneOpen ? "Close Summary" : "Summary"}

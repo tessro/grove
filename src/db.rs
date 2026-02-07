@@ -81,6 +81,17 @@ impl Db {
                 PRIMARY KEY (doc_id, voice)
             )",
         )?;
+        // Migration: add title column to documents if missing
+        let has_title: bool = conn
+            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='documents'")?
+            .query_row([], |row| {
+                let sql: String = row.get(0)?;
+                Ok(sql.contains("title"))
+            })
+            .unwrap_or(false);
+        if !has_title {
+            conn.execute_batch("ALTER TABLE documents ADD COLUMN title TEXT")?;
+        }
         // Create agent_questions table
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS agent_questions (
@@ -309,11 +320,34 @@ impl Db {
         )?;
         Ok(())
     }
+
+    pub fn get_title(&self, doc_id: &str) -> anyhow::Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn.query_row(
+            "SELECT title FROM documents WHERE id = ?1",
+            params![doc_id],
+            |row| row.get(0),
+        );
+        match result {
+            Ok(title) => Ok(title),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub fn set_title(&self, doc_id: &str, title: &str) -> anyhow::Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE documents SET title = ?1 WHERE id = ?2",
+            params![title, doc_id],
+        )?;
+        Ok(())
+    }
 }
 
 fn get_document_inner(conn: &Connection, id: &str) -> anyhow::Result<Document> {
     let mut stmt =
-        conn.prepare("SELECT id, tree, created_at, updated_at, edges FROM documents WHERE id = ?1")?;
+        conn.prepare("SELECT id, tree, created_at, updated_at, edges, title FROM documents WHERE id = ?1")?;
     let doc = stmt.query_row(params![id], |row| {
         let tree_str: String = row.get(1)?;
         let edges_str: String = row.get::<_, String>(4).unwrap_or_else(|_| "[]".to_string());
@@ -321,6 +355,7 @@ fn get_document_inner(conn: &Connection, id: &str) -> anyhow::Result<Document> {
             id: row.get(0)?,
             tree: serde_json::from_str(&tree_str).unwrap(),
             edges: serde_json::from_str(&edges_str).unwrap_or_default(),
+            title: row.get(5)?,
             created_at: row.get(2)?,
             updated_at: row.get(3)?,
         })

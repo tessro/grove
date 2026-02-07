@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-export default function SettingsPanel({ repelForce, onRepelForceChange }) {
+export default function SettingsPanel({ repelForce, onRepelForceChange, diceSides, onDiceSidesChange }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -27,6 +27,18 @@ export default function SettingsPanel({ repelForce, onRepelForceChange }) {
               step={1}
               value={repelForce}
               onChange={(e) => onRepelForceChange(Number(e.target.value))}
+            />
+          </div>
+          <div className="settings-row">
+            <span>voices per heartbeat: 1d{diceSides}</span>
+            <input
+              type="range"
+              className="heartbeat-slider"
+              min={1}
+              max={6}
+              step={1}
+              value={diceSides}
+              onChange={(e) => onDiceSidesChange(Number(e.target.value))}
             />
           </div>
         </div>

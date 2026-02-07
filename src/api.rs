@@ -8,7 +8,7 @@ use rand::seq::SliceRandom;
 use rand::Rng;
 
 use crate::db::Db;
-use crate::llm::{self, LlmClient};
+use crate::llm::{self, count_nodes, LlmClient};
 use crate::models::*;
 
 pub struct AppState {
@@ -94,10 +94,14 @@ pub async fn chat(
         .update_tree(&id, &updated_tree, &updated_edges)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    // Auto-generate title if tree has 3+ nodes and no title yet
+    let title = maybe_generate_title(&state, &id, &updated_tree).await;
+
     Ok(Json(ChatResponse {
         reply,
         tree: updated_tree,
         edges: updated_edges,
+        title,
     }))
 }
 
@@ -146,12 +150,15 @@ pub async fn heartbeat(
             }
         }
 
+        let title = maybe_generate_title(&state, &id, &updated_tree).await;
+
         return Ok(Json(HeartbeatResponse {
             thinking,
             tree: updated_tree,
             edges: updated_edges,
             changed,
             results: vec![],
+            title,
         }));
     }
 
@@ -216,12 +223,15 @@ pub async fn heartbeat(
                 .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
         }
 
+        let title = maybe_generate_title(&state, &id, &updated_tree).await;
+
         return Ok(Json(HeartbeatResponse {
             thinking,
             tree: updated_tree,
             edges: updated_edges,
             changed,
             results: vec![],
+            title,
         }));
     }
 
@@ -322,12 +332,15 @@ pub async fn heartbeat(
         Some(all_thinking_parts.join("\n\n"))
     };
 
+    let title = maybe_generate_title(&state, &id, &merged_tree).await;
+
     Ok(Json(HeartbeatResponse {
         thinking: combined_thinking,
         tree: merged_tree,
         edges: merged_edges,
         changed: any_changed,
         results: per_personality_results,
+        title,
     }))
 }
 
@@ -495,6 +508,33 @@ pub async fn get_summary(
         voice: voice.to_string(),
         stale: false,
     }))
+}
+
+/// If tree has 3+ nodes and no title exists yet, generate one and save it.
+/// Returns the title (existing or newly generated) if available.
+async fn maybe_generate_title(
+    state: &Arc<AppState>,
+    doc_id: &str,
+    tree: &crate::models::TreeNode,
+) -> Option<String> {
+    // Check if title already exists
+    if let Ok(Some(title)) = state.db.get_title(doc_id) {
+        return Some(title);
+    }
+    // Only generate once tree has 3+ nodes
+    if count_nodes(tree) < 3 {
+        return None;
+    }
+    match state.llm.generate_title(tree).await {
+        Ok(title) => {
+            let _ = state.db.set_title(doc_id, &title);
+            Some(title)
+        }
+        Err(e) => {
+            tracing::error!("Title generation error: {}", e);
+            None
+        }
+    }
 }
 
 fn generate_short_id() -> String {
