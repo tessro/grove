@@ -7,6 +7,8 @@ export default function ChatBox({
   loading,
   hoverNodeId,
   tree,
+  personalityColors,
+  personalities,
 }) {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef(null);
@@ -19,6 +21,14 @@ export default function ChatBox({
 
   /* Find hovered node label */
   const hoverLabel = hoverNodeId ? findNodeLabel(tree, hoverNodeId) : null;
+
+  // Build a name lookup from personalities
+  const personalityNames = {};
+  if (personalities) {
+    for (const p of personalities) {
+      personalityNames[p.id] = p.name;
+    }
+  }
 
   const handleSend = useCallback(() => {
     const text = input.trim();
@@ -36,6 +46,16 @@ export default function ChatBox({
     },
     [handleSend],
   );
+
+  function getRoleDisplay(msg) {
+    if (msg.role === "human") return { name: "you", color: null };
+    if (msg.personality && personalityColors) {
+      const name = personalityNames[msg.personality] || msg.personality;
+      const color = personalityColors[msg.personality];
+      return { name, color };
+    }
+    return { name: "claude", color: null };
+  }
 
   return (
     <div className="chat-container">
@@ -56,29 +76,35 @@ export default function ChatBox({
             while typing to reference it.
           </div>
         )}
-        {messages.map((msg, i) => (
-          <div
-            key={i}
-            className={`chat-msg ${msg.is_heartbeat ? "heartbeat" : ""}`}
-          >
-            {msg.hover_node_id && (
-              <div className="chat-msg-hover-context">
-                looking at: {findNodeLabel(tree, msg.hover_node_id) || msg.hover_node_id}
-              </div>
-            )}
-            <div className={`chat-msg-role ${msg.role}`}>
-              {msg.role === "human" ? "you" : "claude"}
-              {msg.is_heartbeat ? " (heartbeat)" : ""}
-            </div>
-            <div className="chat-msg-content">
-              {msg.role === "assistant" ? (
-                <Markdown>{msg.content}</Markdown>
-              ) : (
-                msg.content
+        {messages.map((msg, i) => {
+          const role = getRoleDisplay(msg);
+          return (
+            <div
+              key={i}
+              className={`chat-msg ${msg.is_heartbeat ? "heartbeat" : ""}`}
+            >
+              {msg.hover_node_id && (
+                <div className="chat-msg-hover-context">
+                  looking at: {findNodeLabel(tree, msg.hover_node_id) || msg.hover_node_id}
+                </div>
               )}
+              <div
+                className={`chat-msg-role ${msg.role}`}
+                style={role.color ? { color: role.color } : {}}
+              >
+                {role.name}
+                {msg.is_heartbeat ? " (heartbeat)" : ""}
+              </div>
+              <div className="chat-msg-content">
+                {msg.role === "assistant" ? (
+                  <Markdown>{msg.content}</Markdown>
+                ) : (
+                  msg.content
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {loading && (
           <div className="chat-msg">
             <div className="chat-msg-role assistant">claude</div>

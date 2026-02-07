@@ -1,31 +1,44 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import ThinkingCanvas from "./components/ThinkingCanvas";
 import ChatBox from "./components/ChatBox";
 import HeartbeatControls from "./components/HeartbeatControls";
+import PersonalityPanel from "./components/PersonalityPanel";
 import * as api from "./api";
 
 export default function App() {
   const { docId } = useParams();
   const [tree, setTree] = useState(null);
+  const [edges, setEdges] = useState([]);
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [hoverNodeId, setHoverNodeId] = useState(null);
   const [chatLoading, setChatLoading] = useState(false);
   const [heartbeatLoading, setHeartbeatLoading] = useState(false);
+  const [personalities, setPersonalities] = useState([]);
+  const [activePersonalities, setActivePersonalities] = useState([]);
+  const [diceSides, setDiceSides] = useState(3);
 
-  /* Load document */
+  /* Load document + personalities */
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
 
-    Promise.all([api.getDoc(docId), api.getMessages(docId)])
-      .then(([doc, msgs]) => {
+    Promise.all([
+      api.getDoc(docId),
+      api.getMessages(docId),
+      api.getPersonalities(docId),
+    ])
+      .then(([doc, msgs, pers]) => {
         if (cancelled) return;
         setTree(doc.tree);
+        setEdges(doc.edges || []);
         setMessages(msgs.messages);
+        setPersonalities(pers.available);
+        setActivePersonalities(pers.active);
+        setDiceSides(pers.dice_sides);
       })
       .catch((e) => {
         if (cancelled) return;
@@ -40,6 +53,15 @@ export default function App() {
     };
   }, [docId]);
 
+  // Build personality color map for child components (memoized to avoid D3 reflow)
+  const personalityColors = useMemo(() => {
+    const colors = {};
+    for (const p of personalities) {
+      colors[p.id] = p.color;
+    }
+    return colors;
+  }, [personalities]);
+
   /* Chat handler */
   const handleChat = useCallback(
     async (message) => {
@@ -52,6 +74,7 @@ export default function App() {
       try {
         const res = await api.chat(docId, message, hoverNodeId);
         setTree(res.tree);
+        if (res.edges) setEdges(res.edges);
         if (res.reply) {
           setMessages((prev) => [
             ...prev,
@@ -91,8 +114,25 @@ export default function App() {
       const res = await api.heartbeat(docId);
       if (res.changed) {
         setTree(res.tree);
+        if (res.edges) setEdges(res.edges);
       }
-      if (res.thinking) {
+      // If we got per-personality results, push a message per personality
+      if (res.results && res.results.length > 0) {
+        for (const r of res.results) {
+          if (r.thinking) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                role: "assistant",
+                content: r.thinking,
+                is_heartbeat: true,
+                personality: r.personality,
+              },
+            ]);
+          }
+        }
+      } else if (res.thinking) {
+        // Classic heartbeat (no personalities)
         setMessages((prev) => [
           ...prev,
           { role: "assistant", content: res.thinking, is_heartbeat: true },
@@ -106,6 +146,28 @@ export default function App() {
       setHeartbeatLoading(false);
     }
   }, [docId]);
+
+  /* Personality toggle */
+  const handleTogglePersonalities = useCallback(
+    (newIds) => {
+      setActivePersonalities(newIds);
+      api.setPersonalities(docId, newIds).catch((e) => {
+        console.error("Set personalities error:", e);
+      });
+    },
+    [docId],
+  );
+
+  /* Dice sides change */
+  const handleDiceSidesChange = useCallback(
+    (sides) => {
+      setDiceSides(sides);
+      api.updateDocSettings(docId, { dice_sides: sides }).catch((e) => {
+        console.error("Update settings error:", e);
+      });
+    },
+    [docId],
+  );
 
   if (loading) {
     return (
@@ -139,9 +201,13 @@ export default function App() {
       <div className="canvas-area">
         <ThinkingCanvas
           tree={tree}
+          edges={edges}
           onHoverNode={setHoverNodeId}
           onMarkSeen={handleMarkSeen}
           hoverNodeId={hoverNodeId}
+          activePersonalities={activePersonalities}
+          personalityColors={personalityColors}
+          personalities={personalities}
         />
       </div>
       <div className="sidebar">
@@ -149,12 +215,21 @@ export default function App() {
           onHeartbeat={handleHeartbeat}
           loading={heartbeatLoading}
         />
+        <PersonalityPanel
+          personalities={personalities}
+          activePersonalities={activePersonalities}
+          diceSides={diceSides}
+          onTogglePersonality={handleTogglePersonalities}
+          onDiceSidesChange={handleDiceSidesChange}
+        />
         <ChatBox
           messages={messages}
           onSend={handleChat}
           loading={chatLoading}
           hoverNodeId={hoverNodeId}
           tree={tree}
+          personalityColors={personalityColors}
+          personalities={personalities}
         />
       </div>
     </div>

@@ -89,6 +89,14 @@ function getNodeVisual(node, isSeen) {
   return base;
 }
 
+/* ─── Parse personality from `by` field ─── */
+function parsePersonality(by) {
+  if (by && by.startsWith("claude:")) {
+    return by.slice(7); // e.g. "claude:feynman" -> "feynman"
+  }
+  return null;
+}
+
 /* ─── Flatten tree ─── */
 function flatten(node, parentId = null) {
   const nodes = [];
@@ -133,7 +141,16 @@ function countUnseen(node, seenIds) {
   return c;
 }
 
-export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNodeId }) {
+export default function ThinkingCanvas({
+  tree,
+  edges: crossEdges,
+  onHoverNode,
+  onMarkSeen,
+  hoverNodeId,
+  activePersonalities,
+  personalityColors,
+  personalities,
+}) {
   const svgRef = useRef(null);
   const containerRef = useRef(null);
   const simRef = useRef(null);
@@ -181,6 +198,13 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
 
     const [nodes, links] = flatten(tree);
     const { w, h } = dims;
+
+    // Build cross-link edges (filter to edges where both nodes exist)
+    const nodeIds = new Set(nodes.map((n) => n.id));
+    const crossLinks = (crossEdges || [])
+      .filter((e) => nodeIds.has(e.source) && nodeIds.has(e.target))
+      .map((e) => ({ source: e.source, target: e.target, label: e.label, type: "cross" }));
+    const allLinks = [...links, ...crossLinks];
 
     const defs = svg.append("defs");
 
@@ -243,7 +267,7 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
       .force(
         "link",
         d3
-          .forceLink(links)
+          .forceLink(allLinks)
           .id((d) => d.id)
           .distance((d) => {
             const sn = nodes.find(
@@ -270,7 +294,7 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
 
     simRef.current = sim;
 
-    /* Links */
+    /* Tree links (dashed) */
     const linkSel = g
       .append("g")
       .selectAll("line")
@@ -287,6 +311,27 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
           .attr("stroke", nodeIsSeen ? "rgb(100,98,90)" : UNSEEN.linkColor)
           .attr("stroke-width", nodeIsSeen ? 1.5 : 1.8);
       });
+
+    /* Cross-link edges (solid) */
+    const crossLinkG = g.append("g");
+    const crossLinkSel = crossLinkG
+      .selectAll("line")
+      .data(crossLinks)
+      .join("line")
+      .attr("stroke", "rgba(180,160,220,0.5)")
+      .attr("stroke-width", 1.5)
+      .attr("opacity", 0.7);
+
+    const crossLabelSel = crossLinkG
+      .selectAll("text")
+      .data(crossLinks)
+      .join("text")
+      .attr("text-anchor", "middle")
+      .attr("fill", "rgba(180,160,220,0.7)")
+      .attr("font-family", "'IBM Plex Mono', monospace")
+      .attr("font-size", "9px")
+      .attr("pointer-events", "none")
+      .text((d) => d.label);
 
     /* Node groups */
     const nodeG = g
@@ -319,6 +364,8 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
       const el = d3.select(this);
       const nodeIsSeen = d.seen || seenIdsRef.current.has(d.id);
       const v = getNodeVisual(d, nodeIsSeen);
+      const personalityId = parsePersonality(d.by);
+      const pColor = personalityId && personalityColors ? personalityColors[personalityId] : null;
 
       /* Glow */
       if (v.glow !== "transparent") {
@@ -339,6 +386,17 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
         .attr("stroke", v.color)
         .attr("stroke-width", v.strokeW)
         .attr("class", "main-circle");
+
+      /* Inner ring for personality nodes */
+      if (pColor) {
+        el.append("circle")
+          .attr("r", d.radius - 4)
+          .attr("fill", "none")
+          .attr("stroke", pColor)
+          .attr("stroke-width", 1.5)
+          .attr("opacity", 0.8)
+          .attr("class", "personality-ring");
+      }
 
       /* Text */
       const labelLines = wrapText(d.label, v.charWidth);
@@ -471,6 +529,14 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
         .attr("y1", (d) => d.source.y)
         .attr("x2", (d) => d.target.x)
         .attr("y2", (d) => d.target.y);
+      crossLinkSel
+        .attr("x1", (d) => d.source.x)
+        .attr("y1", (d) => d.source.y)
+        .attr("x2", (d) => d.target.x)
+        .attr("y2", (d) => d.target.y);
+      crossLabelSel
+        .attr("x", (d) => (d.source.x + d.target.x) / 2)
+        .attr("y", (d) => (d.source.y + d.target.y) / 2 - 4);
       nodeG.attr("transform", (d) => `translate(${d.x},${d.y})`);
     });
 
@@ -505,11 +571,14 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
     }, 1800);
 
     return () => sim.stop();
-  }, [dims, tree, onHoverNode, onMarkSeen]);
+  }, [dims, tree, crossEdges, onHoverNode, onMarkSeen, personalityColors]);
 
   if (!tree) return null;
 
   const unseenCount = countUnseen(tree, seenIds);
+
+  // Build tooltip "from" display
+  const tooltipByDisplay = tooltip ? getByDisplay(tooltip.node.by, personalityColors, personalities) : null;
 
   /* Tooltip positioning */
   const tooltipStyle = tooltip
@@ -523,6 +592,14 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
         return { left, top };
       })()
     : null;
+
+  // Active personality info for legend
+  const activeVoices = (activePersonalities || [])
+    .map((id) => {
+      const p = (personalities || []).find((x) => x.id === id);
+      return p ? { id: p.id, name: p.name, color: p.color } : null;
+    })
+    .filter(Boolean);
 
   return (
     <>
@@ -563,6 +640,22 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
                 <span className="legend-label">new from claude</span>
               </div>
             </div>
+            {activeVoices.length > 0 && (
+              <div className="legend-row legend-voices">
+                {activeVoices.map((v) => (
+                  <div key={v.id} className="legend-item">
+                    <div
+                      className="legend-dot"
+                      style={{
+                        background: v.color,
+                        boxShadow: `0 0 6px ${v.color}`,
+                      }}
+                    />
+                    <span className="legend-label">{v.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -570,7 +663,7 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
         {unseenCount > 0 && (
           <div className="unseen-indicator">
             <span className="unseen-dot" />
-            {unseenCount} new thought{unseenCount > 1 ? "s" : ""} from Claude
+            {unseenCount} new thought{unseenCount > 1 ? "s" : ""}
             &mdash; hover to acknowledge
           </div>
         )}
@@ -608,15 +701,28 @@ export default function ThinkingCanvas({ tree, onHoverNode, onMarkSeen, hoverNod
           <p className="tooltip-prose" style={{ color: tooltip.cfg.fg }}>
             {tooltip.node.prose}
           </p>
-          <div className="tooltip-by">
-            {tooltip.node.by === "claude"
-              ? "from claude"
-              : tooltip.node.by === "both"
-                ? "shared thought"
-                : `from ${tooltip.node.by}`}
+          <div
+            className="tooltip-by"
+            style={tooltipByDisplay.color ? { color: tooltipByDisplay.color, opacity: 0.8 } : {}}
+          >
+            {tooltipByDisplay.text}
           </div>
         </div>
       )}
     </>
   );
+}
+
+function getByDisplay(by, personalityColors, personalities) {
+  if (!by) return { text: "", color: null };
+  const personalityId = parsePersonality(by);
+  if (personalityId) {
+    const p = (personalities || []).find((x) => x.id === personalityId);
+    const name = p ? p.name : personalityId;
+    const color = personalityColors ? personalityColors[personalityId] : null;
+    return { text: `from ${name}`, color };
+  }
+  if (by === "claude") return { text: "from claude", color: null };
+  if (by === "both") return { text: "shared thought", color: null };
+  return { text: `from ${by}`, color: null };
 }
