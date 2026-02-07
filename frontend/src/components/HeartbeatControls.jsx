@@ -13,7 +13,7 @@ export default function HeartbeatControls({ onHeartbeat, loading }) {
     try {
       await onHeartbeat();
     } finally {
-      setTimeout(() => setBeating(false), 600);
+      setBeating(false);
     }
   }, [onHeartbeat]);
 
