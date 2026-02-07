@@ -5,8 +5,10 @@ mod models;
 
 use std::sync::Arc;
 
+use axum::extract::Request;
 use axum::http::StatusCode;
-use axum::response::{Html, IntoResponse};
+use axum::middleware::{self, Next};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use tower_http::cors::CorsLayer;
@@ -43,6 +45,7 @@ async fn main() {
         .nest("/api", api_routes)
         .fallback_service(ServeDir::new("frontend/dist").fallback(get(spa_fallback)))
         .layer(CorsLayer::permissive())
+        .layer(middleware::from_fn(require_sierra_email))
         .with_state(state);
 
     let addr = format!("0.0.0.0:{port}");
@@ -50,6 +53,26 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
+}
+
+async fn require_sierra_email(req: Request, next: Next) -> Response {
+    let email = req
+        .headers()
+        .get("X-ExeDev-Email")
+        .and_then(|v| v.to_str().ok());
+
+    match email {
+        Some(e) if e.ends_with("@sierra.ai") || e == "tess.rosania@gmail.com" => {
+            next.run(req).await
+        }
+        Some(_) => (StatusCode::FORBIDDEN, "Access denied.")
+            .into_response(),
+        None => {
+            let path = req.uri().path_and_query().map(|pq| pq.as_str()).unwrap_or("/");
+            let login_url = format!("/__exe.dev/login?redirect={}", path);
+            Redirect::temporary(&login_url).into_response()
+        }
+    }
 }
 
 async fn spa_fallback() -> impl IntoResponse {
