@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
@@ -161,7 +162,7 @@ pub async fn heartbeat(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     // Scope rng so it's dropped before any .await (ThreadRng is !Send)
-    let selected = {
+    let mut selected = {
         let mut rng = rand::thread_rng();
         let roll: u32 = rng.gen_range(1..=dice_sides);
         let count = (roll as usize).min(active_personality_ids.len());
@@ -170,6 +171,29 @@ pub async fn heartbeat(
         sel.truncate(count);
         sel
     };
+
+    // Merge reserved agents (bonus slots from ask_agent questions)
+    let reserved = state
+        .db
+        .get_reserved_agents(&id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    for agent in &reserved {
+        if !selected.contains(agent) && active_personality_ids.contains(agent) {
+            selected.push(agent.clone());
+        }
+    }
+
+    // Build per-agent pending questions map
+    let mut questions_map: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    for agent_id in &selected {
+        let pending = state
+            .db
+            .get_pending_questions_for(&id, agent_id)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        if !pending.is_empty() {
+            questions_map.insert(agent_id.clone(), pending);
+        }
+    }
 
     // Resolve personality references
     let personalities: Vec<&llm::Personality> = selected
@@ -204,10 +228,14 @@ pub async fn heartbeat(
     // Fire parallel personality heartbeats
     let original_ids = llm::collect_node_ids(&doc.tree);
     let original_edges = doc.edges.clone();
+    let empty_questions: Vec<(String, String)> = Vec::new();
 
     let futures: Vec<_> = personalities
         .iter()
-        .map(|p| state.llm.personality_heartbeat(&doc.tree, &doc.edges, &messages, p))
+        .map(|p| {
+            let pq = questions_map.get(p.id).unwrap_or(&empty_questions);
+            state.llm.personality_heartbeat(&doc.tree, &doc.edges, &messages, p, pq)
+        })
         .collect();
 
     let outcomes = futures::future::join_all(futures).await;
@@ -218,11 +246,12 @@ pub async fn heartbeat(
     let mut any_changed = false;
     let mut all_thinking_parts: Vec<String> = Vec::new();
     let mut per_personality_results: Vec<HeartbeatPersonalityResult> = Vec::new();
+    let mut outgoing_questions: Vec<(&str, String, String)> = Vec::new();
 
     for (i, outcome) in outcomes.into_iter().enumerate() {
         let personality = personalities[i];
         match outcome {
-            Ok((thinking, result_tree, result_edges, changed)) => {
+            Ok((thinking, result_tree, result_edges, changed, questions)) => {
                 if changed {
                     any_changed = true;
                     llm::merge_tree_additions(&mut merged_tree, &result_tree, &original_ids);
@@ -244,6 +273,11 @@ pub async fn heartbeat(
                             Some(personality.id),
                         );
                     }
+                }
+
+                // Collect outgoing questions from this agent
+                for (to_agent, question) in questions {
+                    outgoing_questions.push((personality.id, to_agent, question));
                 }
 
                 per_personality_results.push(HeartbeatPersonalityResult {
@@ -268,6 +302,18 @@ pub async fn heartbeat(
             .db
             .update_tree(&id, &merged_tree, &merged_edges)
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    }
+
+    // Expire questions that were consumed this tick
+    let _ = state.db.expire_agent_questions(&id);
+
+    // Insert outgoing questions for next heartbeat
+    if !outgoing_questions.is_empty() {
+        let q_refs: Vec<(&str, &str, &str)> = outgoing_questions
+            .iter()
+            .map(|(from, to, q)| (*from, to.as_str(), q.as_str()))
+            .collect();
+        let _ = state.db.insert_agent_questions(&id, &q_refs);
     }
 
     let combined_thinking = if all_thinking_parts.is_empty() {

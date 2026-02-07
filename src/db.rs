@@ -81,6 +81,17 @@ impl Db {
                 PRIMARY KEY (doc_id, voice)
             )",
         )?;
+        // Create agent_questions table
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS agent_questions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                doc_id TEXT NOT NULL,
+                from_agent TEXT NOT NULL,
+                to_agent TEXT NOT NULL,
+                question TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )",
+        )?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -251,6 +262,50 @@ impl Db {
             "INSERT INTO doc_summaries (doc_id, voice, content, tree_hash) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(doc_id, voice) DO UPDATE SET content = ?3, tree_hash = ?4",
             params![doc_id, voice, content, tree_hash],
+        )?;
+        Ok(())
+    }
+
+    pub fn insert_agent_questions(&self, doc_id: &str, questions: &[(&str, &str, &str)]) -> anyhow::Result<()> {
+        let conn = self.conn.lock().unwrap();
+        for &(from, to, question) in questions {
+            conn.execute(
+                "INSERT INTO agent_questions (doc_id, from_agent, to_agent, question) VALUES (?1, ?2, ?3, ?4)",
+                params![doc_id, from, to, question],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn get_pending_questions_for(&self, doc_id: &str, to_agent: &str) -> anyhow::Result<Vec<(String, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT from_agent, question FROM agent_questions WHERE doc_id = ?1 AND to_agent = ?2",
+        )?;
+        let pairs = stmt
+            .query_map(params![doc_id, to_agent], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(pairs)
+    }
+
+    pub fn get_reserved_agents(&self, doc_id: &str) -> anyhow::Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT to_agent FROM agent_questions WHERE doc_id = ?1",
+        )?;
+        let agents = stmt
+            .query_map(params![doc_id], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+        Ok(agents)
+    }
+
+    pub fn expire_agent_questions(&self, doc_id: &str) -> anyhow::Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM agent_questions WHERE doc_id = ?1",
+            params![doc_id],
         )?;
         Ok(())
     }

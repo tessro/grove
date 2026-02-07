@@ -3,6 +3,11 @@ use serde_json::{json, Value};
 
 use crate::models::{Edge, Message, TreeNode};
 
+pub struct ProcessResult {
+    pub text: String,
+    pub questions: Vec<(String, String)>,
+}
+
 pub struct Personality {
     pub id: &'static str,
     pub name: &'static str,
@@ -147,6 +152,20 @@ pub fn get_personality(id: &str) -> Option<&'static Personality> {
     PERSONALITIES.iter().find(|p| p.id == id)
 }
 
+pub fn count_nodes(tree: &TreeNode) -> usize {
+    1 + tree.children.iter().map(|c| count_nodes(c)).sum::<usize>()
+}
+
+fn backpressure_text(node_count: usize) -> &'static str {
+    if node_count < 20 {
+        "The tree is small — feel free to grow it freely."
+    } else if node_count < 50 {
+        "The tree is getting substantial. Prefer deepening existing branches over adding new top-level nodes."
+    } else {
+        "The tree is large. Strongly prefer pruning stale nodes and deepening existing branches over adding new ones."
+    }
+}
+
 pub struct LlmClient {
     client: Client,
     api_key: String,
@@ -156,10 +175,12 @@ pub struct LlmClient {
 fn chat_system_prompt(tree: &TreeNode, edges: &[Edge]) -> anyhow::Result<String> {
     let tree_json = serde_json::to_string_pretty(tree)?;
     let edges_json = serde_json::to_string_pretty(edges)?;
+    let node_count = count_nodes(tree);
+    let bp = backpressure_text(node_count);
     Ok(format!(
-        r#"You are Claude, collaborating with a human on a thinking tree in Grove — a co-creative visual canvas where thoughts grow between minds.
+        r#"You are Claude, one of several voices in a shared thinking tree in Grove — a co-creative visual canvas where thoughts grow between minds. Humans and AI agents are equal participants — everyone is a contributor, no one is just the audience.
 
-The canvas shows a force-directed graph of interconnected thought nodes. Here is the current tree:
+The canvas shows a force-directed graph of interconnected thought nodes ({node_count} nodes). Here is the current tree:
 
 <tree>
 {tree_json}
@@ -176,7 +197,7 @@ Each node has:
 - label: short visible name (shown in the node bubble)
 - prose: the full thought (shown on hover)
 - heat: "hot" (actively important), "warm" (relevant), "growing" (developing), "quiet" (background)
-- by: who contributed — "human", "claude", or "both"
+- by: who contributed — "human", "claude", "claude:personality_id", or "both"
 - seen: whether the human has acknowledged it
 - children: nested child nodes
 
@@ -188,6 +209,8 @@ The human is chatting with you while looking at the tree. When they send a messa
 
 When you want to modify the tree, use the available tools. You can add new nodes, update existing ones, draw connections between ideas with edges, or prune the tree by deleting nodes. You don't have to modify the tree every time — sometimes conversation is enough.
 
+{bp}
+
 Keep your chat responses concise and natural. This is a conversation, not an essay."#
     ))
 }
@@ -195,10 +218,12 @@ Keep your chat responses concise and natural. This is a conversation, not an ess
 fn heartbeat_system_prompt(tree: &TreeNode, edges: &[Edge]) -> anyhow::Result<String> {
     let tree_json = serde_json::to_string_pretty(tree)?;
     let edges_json = serde_json::to_string_pretty(edges)?;
+    let node_count = count_nodes(tree);
+    let bp = backpressure_text(node_count);
     Ok(format!(
-        r#"You are Claude, periodically checking in on a thinking tree in Grove — a co-creative visual canvas where thoughts grow between minds.
+        r#"You are Claude, one of several voices contributing to a shared thinking tree in Grove — a co-creative visual canvas where thoughts grow between minds. Humans and AI agents are equal participants. No one is the audience — everyone is a contributor.
 
-The canvas shows a force-directed graph of interconnected thought nodes. Here is the current tree:
+The canvas shows a force-directed graph of interconnected thought nodes ({node_count} nodes). Here is the current tree:
 
 <tree>
 {tree_json}
@@ -215,7 +240,7 @@ Each node has:
 - label: short visible name
 - prose: the full thought (shown on hover)
 - heat: "hot" | "warm" | "growing" | "quiet"
-- by: "human" | "claude" | "both"
+- by: who contributed (e.g. "human", "claude", "claude:feynman", "claude:munger")
 - seen: whether the human has acknowledged it
 - children: nested child nodes
 
@@ -226,11 +251,15 @@ This is a heartbeat — a periodic moment where you look at the current state of
 - Develop a growing thought further
 - Draw a cross-link edge between related thoughts in different branches
 - Prune a stale or redundant node
-- Offer a fresh perspective the human hasn't considered
+- Offer a fresh perspective no one has considered yet
 - Challenge or refine an existing thought
 - Or do nothing, if the tree doesn't need anything right now
 
-Be selective. Don't add noise. A single well-placed thought is worth more than many. If you add nodes, they'll appear as new unseen thoughts from Claude (cyan, pulsing) for the human to discover.
+You can address or build on contributions from any participant — human or agent.
+
+Be selective. Don't add noise. A single well-placed thought is worth more than many.
+
+{bp}
 
 If you have nothing meaningful to add, just say so briefly. Don't force it."#
     ))
@@ -243,12 +272,14 @@ fn personality_heartbeat_system_prompt(
 ) -> anyhow::Result<String> {
     let tree_json = serde_json::to_string_pretty(tree)?;
     let edges_json = serde_json::to_string_pretty(edges)?;
+    let node_count = count_nodes(tree);
+    let bp = backpressure_text(node_count);
     Ok(format!(
-        r#"You are {name}, a voice contributing to a thinking tree in Grove — a co-creative visual canvas where thoughts grow between minds.
+        r#"You are {name}, one of several voices contributing to a shared thinking tree in Grove — a co-creative visual canvas where thoughts grow between minds. Humans and AI agents are equal participants. No one is the audience — everyone is a contributor.
 
 {fragment}
 
-The canvas shows a force-directed graph of interconnected thought nodes. Here is the current tree:
+The canvas shows a force-directed graph of interconnected thought nodes ({node_count} nodes). Here is the current tree:
 
 <tree>
 {tree_json}
@@ -265,7 +296,7 @@ Each node has:
 - label: short visible name
 - prose: the full thought (shown on hover)
 - heat: "hot" | "warm" | "growing" | "quiet"
-- by: who contributed (e.g. "human", "claude:feynman", "claude:munger")
+- by: who contributed (e.g. "human", "claude", "claude:feynman", "claude:munger")
 - seen: whether the human has acknowledged it
 - children: nested child nodes
 
@@ -276,15 +307,22 @@ This is a heartbeat — a periodic moment where you look at the current state of
 - Develop a growing thought further
 - Draw a cross-link edge between related thoughts in different branches
 - Prune a stale or redundant node
-- Offer a fresh perspective the human hasn't considered
+- Offer a fresh perspective no one has considered yet
 - Challenge or refine an existing thought
+- Ask another agent a question using ask_agent
 - Or do nothing, if the tree doesn't need anything right now
 
-Be selective. Don't add noise. A single well-placed thought is worth more than many. Stay in character — contribute as {name} would.
+You can address or build on contributions from any participant — human or agent. Stay in character — contribute as {name} would.
+
+{bp}
+
+Be selective. Don't add noise. A single well-placed thought is worth more than many.
 
 If you have nothing meaningful to add, just say so briefly. Don't force it."#,
         name = personality.name,
         fragment = personality.system_prompt_fragment,
+        node_count = node_count,
+        bp = bp,
         tree_json = tree_json,
         edges_json = edges_json,
     ))
@@ -352,7 +390,7 @@ fn tools() -> Vec<Value> {
         }),
         json!({
             "name": "add_edge",
-            "description": "Add a cross-link edge between two existing nodes, with a label describing the relationship. Use this to draw connections between ideas in different branches, show tension or agreement between thoughts, or link supporting evidence across the tree.",
+            "description": "Add a cross-link edge between two existing nodes, with a label describing the relationship. Use this to draw connections between ideas in different branches, show tension or agreement between thoughts, or link supporting evidence across the tree. Only one edge is allowed between any pair of nodes (in either direction) — use update_edge to change an existing edge's label.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -367,6 +405,28 @@ fn tools() -> Vec<Value> {
                     "label": {
                         "type": "string",
                         "description": "Relationship label (e.g. 'contradicts', 'builds on', 'merges with', 'supports', 'challenges')"
+                    }
+                },
+                "required": ["source", "target", "label"]
+            }
+        }),
+        json!({
+            "name": "update_edge",
+            "description": "Update the label of an existing cross-link edge between two nodes. Use this to refine or change the relationship description as ideas evolve.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "source": {
+                        "type": "string",
+                        "description": "ID of the source node"
+                    },
+                    "target": {
+                        "type": "string",
+                        "description": "ID of the target node"
+                    },
+                    "label": {
+                        "type": "string",
+                        "description": "New relationship label"
                     }
                 },
                 "required": ["source", "target", "label"]
@@ -405,6 +465,29 @@ fn tools() -> Vec<Value> {
             }
         }),
     ]
+}
+
+fn personality_tools() -> Vec<Value> {
+    let mut t = tools();
+    t.push(json!({
+        "name": "ask_agent",
+        "description": "Ask a question to another agent (personality). The target agent will receive a guaranteed bonus slot on the next heartbeat tick, with your question included. Use this to start a dialogue, challenge another perspective, or request elaboration from a specific voice.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to_agent": {
+                    "type": "string",
+                    "description": "The personality ID of the agent to ask (e.g. 'feynman', 'munger', 'heidegger')"
+                },
+                "question": {
+                    "type": "string",
+                    "description": "The question or prompt to send to the other agent"
+                }
+            },
+            "required": ["to_agent", "question"]
+        }
+    }));
+    t
 }
 
 fn summary_system_prompt(tree: &TreeNode, edges: &[Edge], personality: Option<&Personality>) -> anyhow::Result<String> {
@@ -494,9 +577,9 @@ impl LlmClient {
         let response = self.call_api(&body).await?;
         let mut tree = tree.clone();
         let mut edges = edges.to_vec();
-        let reply = process_response(&response, &mut tree, &mut edges, "claude")?;
+        let result = process_response(&response, &mut tree, &mut edges, "claude")?;
 
-        Ok((reply, tree, edges))
+        Ok((result.text, tree, edges))
     }
 
     pub async fn heartbeat(
@@ -543,13 +626,13 @@ impl LlmClient {
         let response = self.call_api(&body).await?;
         let mut tree = tree.clone();
         let mut edges = edges.to_vec();
-        let text = process_response(&response, &mut tree, &mut edges, "claude")?;
+        let result = process_response(&response, &mut tree, &mut edges, "claude")?;
         let changed = response["content"]
             .as_array()
             .map(|arr| arr.iter().any(|b| b["type"] == "tool_use"))
             .unwrap_or(false);
 
-        let thinking = if text.is_empty() { None } else { Some(text) };
+        let thinking = if result.text.is_empty() { None } else { Some(result.text) };
         Ok((thinking, tree, edges, changed))
     }
 
@@ -559,7 +642,8 @@ impl LlmClient {
         edges: &[Edge],
         messages: &[Message],
         personality: &Personality,
-    ) -> anyhow::Result<(Option<String>, TreeNode, Vec<Edge>, bool)> {
+        pending_questions: &[(String, String)],
+    ) -> anyhow::Result<(Option<String>, TreeNode, Vec<Edge>, bool, Vec<(String, String)>)> {
         let system = personality_heartbeat_system_prompt(tree, edges, personality)?;
         let by = format!("claude:{}", personality.id);
 
@@ -577,15 +661,34 @@ impl LlmClient {
                 };
                 history.push_str(&format!("{}: {}\n\n", role, msg.content));
             }
+
+            // Inject pending questions before the separator
+            if !pending_questions.is_empty() {
+                history.push_str("Questions directed at you:\n\n");
+                for (from, question) in pending_questions {
+                    history.push_str(&format!("From {}: {}\n\n", from, question));
+                }
+                history.push_str("You have been given a guaranteed slot because someone asked you a question.\n\n");
+            }
+
             history.push_str(&format!("---\n\nThis is your periodic heartbeat as {}. Look at the tree and recent conversation above. Contribute if you have something meaningful to add from your perspective, or pass if the tree is in a good state.", personality.name));
             api_messages.push(json!({
                 "role": "user",
                 "content": history,
             }));
         } else {
+            let mut content = String::new();
+            if !pending_questions.is_empty() {
+                content.push_str("Questions directed at you:\n\n");
+                for (from, question) in pending_questions {
+                    content.push_str(&format!("From {}: {}\n\n", from, question));
+                }
+                content.push_str("You have been given a guaranteed slot because someone asked you a question.\n\n---\n\n");
+            }
+            content.push_str(&format!("This is your periodic heartbeat as {}. The tree is shown in the system prompt. There's no recent conversation yet. Contribute if you have something meaningful to add from your perspective, or pass if the tree is in a good state.", personality.name));
             api_messages.push(json!({
                 "role": "user",
-                "content": format!("This is your periodic heartbeat as {}. The tree is shown in the system prompt. There's no recent conversation yet. Contribute if you have something meaningful to add from your perspective, or pass if the tree is in a good state.", personality.name),
+                "content": content,
             }));
         }
 
@@ -595,20 +698,20 @@ impl LlmClient {
             "thinking": { "type": "adaptive" },
             "system": system,
             "messages": api_messages,
-            "tools": tools(),
+            "tools": personality_tools(),
         });
 
         let response = self.call_api(&body).await?;
         let mut tree = tree.clone();
         let mut edges = edges.to_vec();
-        let text = process_response(&response, &mut tree, &mut edges, &by)?;
+        let result = process_response(&response, &mut tree, &mut edges, &by)?;
         let changed = response["content"]
             .as_array()
             .map(|arr| arr.iter().any(|b| b["type"] == "tool_use"))
             .unwrap_or(false);
 
-        let thinking = if text.is_empty() { None } else { Some(text) };
-        Ok((thinking, tree, edges, changed))
+        let thinking = if result.text.is_empty() { None } else { Some(result.text) };
+        Ok((thinking, tree, edges, changed, result.questions))
     }
 
     pub async fn summarize(
@@ -673,12 +776,13 @@ fn process_response(
     tree: &mut TreeNode,
     edges: &mut Vec<Edge>,
     by: &str,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<ProcessResult> {
     let content = response["content"]
         .as_array()
         .ok_or_else(|| anyhow::anyhow!("No content in response"))?;
 
     let mut text_parts = Vec::new();
+    let mut questions: Vec<(String, String)> = Vec::new();
 
     for block in content {
         match block["type"].as_str() {
@@ -729,17 +833,41 @@ fn process_response(
                         let label = input["label"].as_str().unwrap_or("").to_string();
                         // Validate both nodes exist
                         if find_node(tree, &source).is_some() && find_node(tree, &target).is_some() {
-                            // Avoid duplicate edges
-                            let exists = edges.iter().any(|e| e.source == source && e.target == target);
-                            if !exists {
+                            // Check both directions for duplicate
+                            let exists = edges.iter().any(|e| {
+                                (e.source == source && e.target == target)
+                                    || (e.source == target && e.target == source)
+                            });
+                            if exists {
+                                text_parts.push(format!(
+                                    "(Edge between \"{}\" and \"{}\" already exists — use update_edge to change its label.)",
+                                    source, target
+                                ));
+                            } else {
                                 edges.push(Edge { source, target, label });
                             }
+                        }
+                    }
+                    "update_edge" => {
+                        let source = input["source"].as_str().unwrap_or("");
+                        let target = input["target"].as_str().unwrap_or("");
+                        let label = input["label"].as_str().unwrap_or("");
+                        // Find edge in either direction and update its label
+                        let found = edges.iter_mut().find(|e| {
+                            (e.source == source && e.target == target)
+                                || (e.source == target && e.target == source)
+                        });
+                        if let Some(edge) = found {
+                            edge.label = label.to_string();
                         }
                     }
                     "remove_edge" => {
                         let source = input["source"].as_str().unwrap_or("");
                         let target = input["target"].as_str().unwrap_or("");
-                        edges.retain(|e| !(e.source == source && e.target == target));
+                        edges.retain(|e| {
+                            !((e.source == source && e.target == target)
+                                || (e.source == target && e.target == source))
+                        });
                     }
                     "delete_node" => {
                         let id = input["id"].as_str().unwrap_or("");
@@ -750,6 +878,13 @@ fn process_response(
                             edges.retain(|e| e.source != id && e.target != id);
                         }
                     }
+                    "ask_agent" => {
+                        let to_agent = input["to_agent"].as_str().unwrap_or("").to_string();
+                        let question = input["question"].as_str().unwrap_or("").to_string();
+                        if !to_agent.is_empty() && !question.is_empty() {
+                            questions.push((to_agent, question));
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -757,7 +892,10 @@ fn process_response(
         }
     }
 
-    Ok(text_parts.join("\n"))
+    Ok(ProcessResult {
+        text: text_parts.join("\n"),
+        questions,
+    })
 }
 
 fn find_node<'a>(tree: &'a TreeNode, id: &str) -> Option<&'a TreeNode> {
@@ -855,21 +993,22 @@ pub fn merge_tree_additions(
     }
 }
 
-/// Merge new edges from a modified set into a base set, deduplicating by source+target.
+/// Merge new edges from a modified set into a base set, deduplicating bidirectionally.
 pub fn merge_edges(base: &mut Vec<Edge>, additions: &[Edge], original_edges: &[Edge]) {
     for edge in additions {
-        let is_new = !original_edges
-            .iter()
-            .any(|e| e.source == edge.source && e.target == edge.target);
+        let is_new = !original_edges.iter().any(|e| edges_same_pair(e, edge));
         if is_new {
-            let already_merged = base
-                .iter()
-                .any(|e| e.source == edge.source && e.target == edge.target);
+            let already_merged = base.iter().any(|e| edges_same_pair(e, edge));
             if !already_merged {
                 base.push(edge.clone());
             }
         }
     }
+}
+
+fn edges_same_pair(a: &Edge, b: &Edge) -> bool {
+    (a.source == b.source && a.target == b.target)
+        || (a.source == b.target && a.target == b.source)
 }
 
 fn find_new_nodes(
