@@ -58,6 +58,29 @@ impl Db {
         if !has_edges {
             conn.execute_batch("ALTER TABLE documents ADD COLUMN edges TEXT NOT NULL DEFAULT '[]'")?;
         }
+        // Migration: add repel_force column to doc_settings if missing
+        let has_repel_force: bool = conn
+            .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='doc_settings'")?
+            .query_row([], |row| {
+                let sql: String = row.get(0)?;
+                Ok(sql.contains("repel_force"))
+            })
+            .unwrap_or(false);
+        if !has_repel_force {
+            conn.execute_batch(
+                "ALTER TABLE doc_settings ADD COLUMN repel_force REAL NOT NULL DEFAULT 20.0",
+            )?;
+        }
+        // Create doc_summaries table
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS doc_summaries (
+                doc_id TEXT NOT NULL,
+                voice TEXT NOT NULL,
+                content TEXT NOT NULL,
+                tree_hash TEXT NOT NULL,
+                PRIMARY KEY (doc_id, voice)
+            )",
+        )?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -180,6 +203,54 @@ impl Db {
             "INSERT INTO doc_settings (doc_id, heartbeat_dice_sides) VALUES (?1, ?2)
              ON CONFLICT(doc_id) DO UPDATE SET heartbeat_dice_sides = ?2",
             params![doc_id, sides],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_repel_force(&self, doc_id: &str) -> anyhow::Result<f64> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn.query_row(
+            "SELECT repel_force FROM doc_settings WHERE doc_id = ?1",
+            params![doc_id],
+            |row| row.get(0),
+        );
+        match result {
+            Ok(force) => Ok(force),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(20.0),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub fn set_repel_force(&self, doc_id: &str, force: f64) -> anyhow::Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO doc_settings (doc_id, heartbeat_dice_sides, repel_force) VALUES (?1, 3, ?2)
+             ON CONFLICT(doc_id) DO UPDATE SET repel_force = ?2",
+            params![doc_id, force],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_summary(&self, doc_id: &str, voice: &str) -> anyhow::Result<Option<(String, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let result = conn.query_row(
+            "SELECT content, tree_hash FROM doc_summaries WHERE doc_id = ?1 AND voice = ?2",
+            params![doc_id, voice],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        );
+        match result {
+            Ok(pair) => Ok(Some(pair)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    pub fn save_summary(&self, doc_id: &str, voice: &str, content: &str, tree_hash: &str) -> anyhow::Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO doc_summaries (doc_id, voice, content, tree_hash) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(doc_id, voice) DO UPDATE SET content = ?3, tree_hash = ?4",
+            params![doc_id, voice, content, tree_hash],
         )?;
         Ok(())
     }

@@ -407,6 +407,33 @@ fn tools() -> Vec<Value> {
     ]
 }
 
+fn summary_system_prompt(tree: &TreeNode, edges: &[Edge], personality: Option<&Personality>) -> anyhow::Result<String> {
+    let tree_json = serde_json::to_string_pretty(tree)?;
+    let edges_json = serde_json::to_string_pretty(edges)?;
+    let voice_fragment = if let Some(p) = personality {
+        format!("\n\n{}\n\nWrite in your voice as {}.", p.system_prompt_fragment, p.name)
+    } else {
+        String::new()
+    };
+    Ok(format!(
+        r#"You are writing a summary essay of a thinking tree in Grove — a co-creative visual canvas where thoughts grow between minds.
+
+Here is the current tree:
+
+<tree>
+{tree_json}
+</tree>
+
+Cross-link edges:
+
+<edges>
+{edges_json}
+</edges>
+
+Write a flowing essay that synthesizes the ideas in this tree. Capture the key themes, tensions, and connections. Write in markdown. Be concise but thorough — aim for 2-4 paragraphs. Don't list nodes mechanically; weave the ideas into a narrative.{voice_fragment}"#
+    ))
+}
+
 impl LlmClient {
     pub fn new(api_key: String, model: Option<String>) -> Self {
         Self {
@@ -582,6 +609,40 @@ impl LlmClient {
 
         let thinking = if text.is_empty() { None } else { Some(text) };
         Ok((thinking, tree, edges, changed))
+    }
+
+    pub async fn summarize(
+        &self,
+        tree: &TreeNode,
+        edges: &[Edge],
+        personality: Option<&Personality>,
+    ) -> anyhow::Result<String> {
+        let system = summary_system_prompt(tree, edges, personality)?;
+
+        let body = json!({
+            "model": self.model,
+            "max_tokens": 4000,
+            "system": system,
+            "messages": [{
+                "role": "user",
+                "content": "Please write the summary essay now."
+            }],
+        });
+
+        let response = self.call_api(&body).await?;
+        let content = response["content"]
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("No content in response"))?;
+
+        let mut text = String::new();
+        for block in content {
+            if block["type"].as_str() == Some("text") {
+                if let Some(t) = block["text"].as_str() {
+                    text.push_str(t);
+                }
+            }
+        }
+        Ok(text)
     }
 
     async fn call_api(&self, body: &Value) -> anyhow::Result<Value> {

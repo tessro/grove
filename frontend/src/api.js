@@ -70,3 +70,16 @@ export async function updateDocSettings(id, settings) {
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
+
+export async function getSummary(id, voice, forceRefresh) {
+  const res = await fetch(`${BASE}/docs/${id}/summary`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      voice: voice || null,
+      force_refresh: forceRefresh || false,
+    }),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}

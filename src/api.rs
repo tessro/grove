@@ -332,6 +332,11 @@ pub async fn get_personalities(
         .get_dice_sides(&id)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
+    let repel_force = state
+        .db
+        .get_repel_force(&id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
     let available: Vec<PersonalityInfo> = llm::PERSONALITIES
         .iter()
         .map(|p| PersonalityInfo {
@@ -347,6 +352,7 @@ pub async fn get_personalities(
         available,
         active,
         dice_sides,
+        repel_force,
     }))
 }
 
@@ -365,13 +371,84 @@ pub async fn set_personalities(
 pub async fn update_settings(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
-    Json(req): Json<SetDiceSidesRequest>,
+    Json(req): Json<UpdateSettingsRequest>,
 ) -> Result<StatusCode, (StatusCode, String)> {
+    if let Some(sides) = req.dice_sides {
+        state
+            .db
+            .set_dice_sides(&id, sides)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    }
+    if let Some(force) = req.repel_force {
+        state
+            .db
+            .set_repel_force(&id, force)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn get_summary(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Json(req): Json<SummaryRequest>,
+) -> Result<Json<SummaryResponse>, (StatusCode, String)> {
+    let doc = state
+        .db
+        .get_document(&id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or((StatusCode::NOT_FOUND, "Document not found".to_string()))?;
+
+    let voice = req.voice.as_deref().unwrap_or("claude");
+    let force_refresh = req.force_refresh.unwrap_or(false);
+
+    // Hash the tree JSON for staleness detection
+    let tree_json = serde_json::to_string(&doc.tree)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let tree_hash = format!("{:x}", md5::compute(&tree_json));
+
+    // Check cache
+    if !force_refresh {
+        if let Some((content, cached_hash)) = state
+            .db
+            .get_summary(&id, voice)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        {
+            return Ok(Json(SummaryResponse {
+                content,
+                voice: voice.to_string(),
+                stale: cached_hash != tree_hash,
+            }));
+        }
+    }
+
+    // Generate summary via LLM
+    let personality = if voice != "claude" {
+        llm::get_personality(voice)
+    } else {
+        None
+    };
+
+    let content = state
+        .llm
+        .summarize(&doc.tree, &doc.edges, personality)
+        .await
+        .map_err(|e| {
+            tracing::error!("Summary LLM error: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("LLM error: {e}"))
+        })?;
+
+    // Cache the result
     state
         .db
-        .set_dice_sides(&id, req.dice_sides)
+        .save_summary(&id, voice, &content, &tree_hash)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    Ok(StatusCode::NO_CONTENT)
+
+    Ok(Json(SummaryResponse {
+        content,
+        voice: voice.to_string(),
+        stale: false,
+    }))
 }
 
 fn generate_short_id() -> String {

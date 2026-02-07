@@ -109,8 +109,9 @@ pub struct SetPersonalitiesRequest {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct SetDiceSidesRequest {
-    pub dice_sides: u32,
+pub struct UpdateSettingsRequest {
+    pub dice_sides: Option<u32>,
+    pub repel_force: Option<f64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -127,4 +128,18 @@ pub struct PersonalitiesResponse {
     pub available: Vec<PersonalityInfo>,
     pub active: Vec<String>,
     pub dice_sides: u32,
+    pub repel_force: f64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SummaryRequest {
+    pub voice: Option<String>,
+    pub force_refresh: Option<bool>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SummaryResponse {
+    pub content: String,
+    pub voice: String,
+    pub stale: bool,
 }

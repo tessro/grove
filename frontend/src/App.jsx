@@ -4,6 +4,8 @@ import ThinkingCanvas from "./components/ThinkingCanvas";
 import ChatBox from "./components/ChatBox";
 import HeartbeatControls from "./components/HeartbeatControls";
 import PersonalityPanel from "./components/PersonalityPanel";
+import SettingsPanel from "./components/SettingsPanel";
+import DocumentPane from "./components/DocumentPane";
 import * as api from "./api";
 
 export default function App() {
@@ -19,6 +21,12 @@ export default function App() {
   const [personalities, setPersonalities] = useState([]);
   const [activePersonalities, setActivePersonalities] = useState([]);
   const [diceSides, setDiceSides] = useState(3);
+  const [repelForce, setRepelForce] = useState(20);
+  const [docPaneOpen, setDocPaneOpen] = useState(false);
+  const [summary, setSummary] = useState(null);
+  const [summaryStale, setSummaryStale] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryVoice, setSummaryVoice] = useState("claude");
 
   /* Load document + personalities */
   useEffect(() => {
@@ -39,6 +47,7 @@ export default function App() {
         setPersonalities(pers.available);
         setActivePersonalities(pers.active);
         setDiceSides(pers.dice_sides);
+        setRepelForce(pers.repel_force || 20);
       })
       .catch((e) => {
         if (cancelled) return;
@@ -169,6 +178,71 @@ export default function App() {
     [docId],
   );
 
+  /* Repel force change */
+  const handleRepelForceChange = useCallback(
+    (force) => {
+      setRepelForce(force);
+      api.updateDocSettings(docId, { repel_force: force }).catch((e) => {
+        console.error("Update settings error:", e);
+      });
+    },
+    [docId],
+  );
+
+  /* Fetch summary */
+  const fetchSummary = useCallback(
+    async (voice, forceRefresh = false) => {
+      setSummaryLoading(true);
+      try {
+        const res = await api.getSummary(docId, voice, forceRefresh);
+        setSummary(res.content);
+        setSummaryStale(res.stale);
+      } catch (e) {
+        console.error("Summary error:", e);
+        setSummary("(Error generating summary. Try again.)");
+      } finally {
+        setSummaryLoading(false);
+      }
+    },
+    [docId],
+  );
+
+  /* Toggle document pane */
+  const handleToggleDocPane = useCallback(() => {
+    setDocPaneOpen((prev) => {
+      const next = !prev;
+      if (next && !summary) {
+        fetchSummary(summaryVoice);
+      }
+      return next;
+    });
+  }, [summary, summaryVoice, fetchSummary]);
+
+  /* Change summary voice */
+  const handleSummaryVoiceChange = useCallback(
+    (voice) => {
+      setSummaryVoice(voice);
+      setSummary(null);
+      fetchSummary(voice);
+    },
+    [fetchSummary],
+  );
+
+  /* Refresh summary */
+  const handleRefreshSummary = useCallback(() => {
+    fetchSummary(summaryVoice, true);
+  }, [summaryVoice, fetchSummary]);
+
+  // Build voice options for document pane
+  const voiceOptions = useMemo(() => {
+    const opts = [{ id: "claude", name: "Claude" }];
+    for (const id of activePersonalities) {
+      const p = personalities.find((x) => x.id === id);
+      if (p) opts.push({ id: p.id, name: p.name });
+    }
+    return opts;
+  }, [activePersonalities, personalities]);
+
   if (loading) {
     return (
       <div className="loading">
@@ -208,8 +282,21 @@ export default function App() {
           activePersonalities={activePersonalities}
           personalityColors={personalityColors}
           personalities={personalities}
+          repelForce={repelForce}
         />
       </div>
+      {docPaneOpen && (
+        <DocumentPane
+          summary={summary}
+          summaryLoading={summaryLoading}
+          summaryStale={summaryStale}
+          summaryVoice={summaryVoice}
+          onVoiceChange={handleSummaryVoiceChange}
+          onRefresh={handleRefreshSummary}
+          onClose={() => setDocPaneOpen(false)}
+          voiceOptions={voiceOptions}
+        />
+      )}
       <div className="sidebar">
         <HeartbeatControls
           onHeartbeat={handleHeartbeat}
@@ -222,6 +309,13 @@ export default function App() {
           onTogglePersonality={handleTogglePersonalities}
           onDiceSidesChange={handleDiceSidesChange}
         />
+        <SettingsPanel
+          repelForce={repelForce}
+          onRepelForceChange={handleRepelForceChange}
+        />
+        <button className="summary-toggle-btn" onClick={handleToggleDocPane}>
+          {docPaneOpen ? "Close Summary" : "Summary"}
+        </button>
         <ChatBox
           messages={messages}
           onSend={handleChat}

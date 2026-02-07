@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from "react";
 import * as d3 from "d3";
+import Markdown from "react-markdown";
 
 /* ─── Color systems ─── */
 
@@ -150,12 +151,17 @@ export default function ThinkingCanvas({
   activePersonalities,
   personalityColors,
   personalities,
+  repelForce,
 }) {
   const svgRef = useRef(null);
   const containerRef = useRef(null);
   const simRef = useRef(null);
+  const tooltipRef = useRef(null);
+  const tooltipDimsRef = useRef({ w: 0, h: 0 });
+  const repelForceRef = useRef(repelForce || 20);
   const [dims, setDims] = useState({ w: 800, h: 600 });
   const [tooltip, setTooltip] = useState(null);
+  const [tooltipPos, setTooltipPos] = useState(null);
   const [seenIds, setSeenIds] = useState(new Set());
   const seenIdsRef = useRef(seenIds);
   const tooltipTimeout = useRef(null);
@@ -282,7 +288,7 @@ export default function ThinkingCanvas({
       )
       .force(
         "charge",
-        d3.forceManyBody().strength((d) => -d.radius * 20),
+        d3.forceManyBody().strength((d) => -d.radius * repelForceRef.current),
       )
       .force("center", d3.forceCenter(w / 2, h / 2))
       .force(
@@ -504,12 +510,19 @@ export default function ThinkingCanvas({
         ? HEAT_CONFIG[d.heat] || HEAT_CONFIG.quiet
         : getNodeVisual(d, false);
       setTooltip({ node: d, cfg: v, x: event.clientX, y: event.clientY });
+      // Initial position off-screen; useLayoutEffect will measure and fix
+      setTooltipPos({ left: -9999, top: -9999 });
     });
 
     nodeG.on("mousemove", (event) => {
       setTooltip((prev) =>
         prev ? { ...prev, x: event.clientX, y: event.clientY } : null,
       );
+      // Use cached dims for instant repositioning
+      const { w: tw, h: th } = tooltipDimsRef.current;
+      if (tw > 0) {
+        setTooltipPos(computeTooltipPos(event.clientX, event.clientY, tw, th));
+      }
     });
 
     nodeG.on("mouseleave", (event, d) => {
@@ -573,25 +586,34 @@ export default function ThinkingCanvas({
     return () => sim.stop();
   }, [dims, tree, crossEdges, onHoverNode, onMarkSeen, personalityColors]);
 
+  /* Live-update repelling force without rebuilding simulation */
+  useEffect(() => {
+    repelForceRef.current = repelForce || 20;
+    if (simRef.current) {
+      simRef.current
+        .force("charge")
+        .strength((d) => -d.radius * repelForceRef.current);
+      simRef.current.alpha(0.3).restart();
+    }
+  }, [repelForce]);
+
+  /* Measure tooltip and compute overflow-safe position */
+  useLayoutEffect(() => {
+    if (!tooltip || !tooltipRef.current) {
+      setTooltipPos(null);
+      return;
+    }
+    const rect = tooltipRef.current.getBoundingClientRect();
+    tooltipDimsRef.current = { w: rect.width, h: rect.height };
+    setTooltipPos(computeTooltipPos(tooltip.x, tooltip.y, rect.width, rect.height));
+  }, [tooltip?.node?.id]);
+
   if (!tree) return null;
 
   const unseenCount = countUnseen(tree, seenIds);
 
   // Build tooltip "from" display
   const tooltipByDisplay = tooltip ? getByDisplay(tooltip.node.by, personalityColors, personalities) : null;
-
-  /* Tooltip positioning */
-  const tooltipStyle = tooltip
-    ? (() => {
-        const tw = 360;
-        const margin = 16;
-        let left = tooltip.x + 16;
-        let top = tooltip.y - 20;
-        if (left + tw > dims.w - margin) left = tooltip.x - tw - 16;
-        if (top < margin) top = margin;
-        return { left, top };
-      })()
-    : null;
 
   // Active personality info for legend
   const activeVoices = (activePersonalities || [])
@@ -679,10 +701,11 @@ export default function ThinkingCanvas({
       {/* Tooltip */}
       {tooltip && (
         <div
+          ref={tooltipRef}
           className="tooltip"
           style={{
-            left: tooltipStyle.left + "px",
-            top: tooltipStyle.top + "px",
+            left: tooltipPos ? tooltipPos.left + "px" : "-9999px",
+            top: tooltipPos ? tooltipPos.top + "px" : "-9999px",
             borderColor: tooltip.cfg.color,
           }}
         >
@@ -698,9 +721,9 @@ export default function ThinkingCanvas({
               {tooltip.node.label}
             </span>
           </div>
-          <p className="tooltip-prose" style={{ color: tooltip.cfg.fg }}>
-            {tooltip.node.prose}
-          </p>
+          <div className="tooltip-prose" style={{ color: tooltip.cfg.fg }}>
+            <Markdown>{tooltip.node.prose}</Markdown>
+          </div>
           <div
             className="tooltip-by"
             style={tooltipByDisplay.color ? { color: tooltipByDisplay.color, opacity: 0.8 } : {}}
@@ -711,6 +734,31 @@ export default function ThinkingCanvas({
       )}
     </>
   );
+}
+
+function computeTooltipPos(cursorX, cursorY, tw, th) {
+  const margin = 12;
+  let left = cursorX + 16;
+  let top = cursorY - 20;
+
+  // Flip left if right-overflow
+  if (left + tw > window.innerWidth - margin) {
+    left = cursorX - tw - 16;
+  }
+  // Pin to left margin if still overflowing
+  if (left < margin) {
+    left = margin;
+  }
+  // Flip up if bottom-overflow
+  if (top + th > window.innerHeight - margin) {
+    top = cursorY - th - 16;
+  }
+  // Pin to top margin if still overflowing
+  if (top < margin) {
+    top = margin;
+  }
+
+  return { left, top };
 }
 
 function getByDisplay(by, personalityColors, personalities) {
